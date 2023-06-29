@@ -7,9 +7,13 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.ProtocolException;
 import java.net.URL;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Scanner;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -21,15 +25,66 @@ import java.util.concurrent.TimeUnit;
  */
 public class DyndnsUpdater{
     static File ipFile = new File("ip.txt");
-    static String dns_zone_name="x.pro";
-    static long dns_record_id =  1234567890L;
-    static String dns_record_subdomain =  "y";
-    static String dns_record_target =  "";
-    static int dns_record_ttl =  3600;
-    static String ovh_endpoint =  "https://eu.api.ovh.com/1.0";
+    static String dns_zone_name="domain.pro";
+    static long dns_record_id =  5216903931L;
+    static String dns_record_subdomain =  "subdomain";
+     static String dns_record_target =  "";
+    static String ovh_endpoint_url =  "https://eu.api.ovh.com/1.0";
+    static String ovh_endpoint =  "ovh-net";
     static String ovh_application_key = "123";
-    static String ovh_application_secret = "123";
-    static String ovh_consumer_key =  "123";
+    static String ovh_application_secret = "456";
+    static String ovh_consumer_key =  "789";
+    static int refreshMinutes=5;
+    static DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss");
+
+    public static boolean ovhApiRequest(String target, String method,String body) throws IOException, NoSuchAlgorithmException{
+        URL urlApiOvh = new URL(new StringBuilder(ovh_endpoint_url).append(target).toString());
+        HttpURLConnection request = (HttpURLConnection) urlApiOvh.openConnection();
+        request.setRequestMethod(method);
+        request.setReadTimeout(30000);
+        request.setConnectTimeout(30000);
+        request.setRequestProperty("Content-Type", "application/json");
+        request.setRequestProperty("X-Ovh-Application", ovh_application_key);
+        long timestamp = System.currentTimeMillis() / 1000;
+        String toSign = new StringBuilder(ovh_application_secret)
+                                .append("+")
+                                .append(ovh_consumer_key)
+                                .append("+")
+                                .append(method)
+                                .append("+")
+                                .append(urlApiOvh)
+                                .append("+")
+                                .append(body)
+                                .append("+")
+                                .append(timestamp)
+                                .toString();
+        String signature = new StringBuilder("$1$").append(HashSHA1(toSign)).toString();
+        request.setRequestProperty("X-Ovh-Consumer", ovh_consumer_key);
+        request.setRequestProperty("X-Ovh-Signature", signature);
+        request.setRequestProperty("X-Ovh-Timestamp", Long.toString(timestamp));
+        request.setDoOutput(true);
+        if(body!=""){
+            DataOutputStream out = new DataOutputStream(request.getOutputStream());
+            out.writeBytes(body);
+            out.flush();
+            out.close();
+        }
+        String inputLine;
+        BufferedReader in;
+        int responseCode = request.getResponseCode();
+        if (responseCode == 200) {
+            in = new BufferedReader(new InputStreamReader(request.getInputStream()));
+        } else {
+            in = new BufferedReader(new InputStreamReader(request.getErrorStream()));
+        }
+        StringBuilder response = new StringBuilder();
+        while ((inputLine = in.readLine()) != null) {
+            response.append(inputLine);
+        }
+        in.close();
+        System.out.println(Integer.toString(responseCode)+"-"+response);
+        return (responseCode==200)?true:false;
+    }
 
     /*
      * alternatives api to retrieve the public ip :
@@ -62,60 +117,31 @@ public class DyndnsUpdater{
         }
 
         if(!oldIp.equals(currentIp)){
+            //api request dynHost update
             dns_record_target=currentIp;
-            String urlUpdateDns="/domain/zone/"+dns_zone_name+"/dynHost/record/"+dns_record_id;
-            URL urlApiOvh = new URL(new StringBuilder(ovh_endpoint_url).append(urlUpdateDns).toString());
-            HttpURLConnection request = (HttpURLConnection) urlApiOvh.openConnection();
-            request.setRequestMethod("PUT");
-			request.setReadTimeout(30000);
-			request.setConnectTimeout(30000);
-			request.setRequestProperty("Content-Type", "application/json");
-			request.setRequestProperty("X-Ovh-Application", ovh_application_key);
-            long timestamp = System.currentTimeMillis() / 1000;
+            String url="/domain/zone/"+dns_zone_name+"/dynHost/record/"+dns_record_id;
             String body="{"+
                             "\"ip\":\""+dns_record_target+"\","+
                             "\"subDomain\":\""+dns_record_subdomain+"\""+"}";
-            String toSign = new StringBuilder(ovh_application_secret)
-									.append("+")
-									.append(ovh_consumer_key)
-									.append("+")
-									.append("PUT")
-									.append("+")
-									.append(urlApiOvh)
-									.append("+")
-									.append(body)
-									.append("+")
-									.append(timestamp)
-									.toString();
-            String signature = new StringBuilder("$1$").append(HashSHA1(toSign)).toString();
-            request.setRequestProperty("X-Ovh-Consumer", ovh_consumer_key);
-			request.setRequestProperty("X-Ovh-Signature", signature);
-			request.setRequestProperty("X-Ovh-Timestamp", Long.toString(timestamp));
-            request.setDoOutput(true);
-            DataOutputStream out = new DataOutputStream(request.getOutputStream());
-            out.writeBytes(body);
-            out.flush();
-            out.close();
-            String inputLine;
-			BufferedReader in;
-			int responseCode = request.getResponseCode();
-            System.out.println(Integer.toString(responseCode)+"-");
-			if (responseCode == 200) {
-				in = new BufferedReader(new InputStreamReader(request.getInputStream()));
-			} else {
-				in = new BufferedReader(new InputStreamReader(request.getErrorStream()));
-			}
-			StringBuilder response = new StringBuilder();
-			while ((inputLine = in.readLine()) != null) {
-				response.append(inputLine);
-			}
-            in.close();
-			System.out.println(response.toString());
-
+            boolean success1=ovhApiRequest(url, "PUT",body);
+            
+            //api request name zone refresh
+            url="/domain/zone/"+dns_zone_name+"/refresh";
+            body="";
+            boolean success2=ovhApiRequest(url, "POST",body);
+            boolean successTOT=success1&&success2;
             //update ip.txt
-            fw = new FileWriter(ipFile,false);
-            fw.write(dns_record_target);
-            fw.close();
+            LocalDateTime now = LocalDateTime.now();  
+            if(successTOT){
+                fw = new FileWriter(ipFile,false);
+                fw.write(dns_record_target);
+                fw.close();
+
+                System.out.println(dtf.format(now)+"---new ip:"+dns_record_target);  
+            }else{
+                System.out.println(dtf.format(now)+"---error");  
+            }
+            
         }
     }
 
@@ -133,7 +159,6 @@ public class DyndnsUpdater{
 	}
     
     public static void main(String[] args) {
-        int timeoutMinutes=30;
         final ScheduledExecutorService updateScheduler = Executors.newSingleThreadScheduledExecutor();
 
         updateScheduler.scheduleAtFixedRate(new Runnable(){
@@ -145,6 +170,6 @@ public class DyndnsUpdater{
                     e.printStackTrace();
                 }
             }
-        }, 0, timeoutMinutes, TimeUnit.MINUTES);
+        }, 0, refreshMinutes, TimeUnit.MINUTES);
     }
 }
