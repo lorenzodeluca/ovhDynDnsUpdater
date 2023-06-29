@@ -1,14 +1,11 @@
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
-import java.net.MalformedURLException;
-import java.net.ProtocolException;
 import java.net.URL;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -26,9 +23,9 @@ import java.util.concurrent.TimeUnit;
 public class DyndnsUpdater{
     static File ipFile = new File("ip.txt");
     static String dns_zone_name="domain.pro";
-    static long dns_record_id =  5216903931L;
+    static long dns_record_id =  12345678L;
     static String dns_record_subdomain =  "subdomain";
-     static String dns_record_target =  "";
+    static String dns_record_target =  "";
     static String ovh_endpoint_url =  "https://eu.api.ovh.com/1.0";
     static String ovh_endpoint =  "ovh-net";
     static String ovh_application_key = "123";
@@ -46,18 +43,7 @@ public class DyndnsUpdater{
         request.setRequestProperty("Content-Type", "application/json");
         request.setRequestProperty("X-Ovh-Application", ovh_application_key);
         long timestamp = System.currentTimeMillis() / 1000;
-        String toSign = new StringBuilder(ovh_application_secret)
-                                .append("+")
-                                .append(ovh_consumer_key)
-                                .append("+")
-                                .append(method)
-                                .append("+")
-                                .append(urlApiOvh)
-                                .append("+")
-                                .append(body)
-                                .append("+")
-                                .append(timestamp)
-                                .toString();
+        String toSign = ovh_application_secret + "+" + ovh_consumer_key + "+" + method + "+" + urlApiOvh + "+" + body + "+" + timestamp;
         String signature = new StringBuilder("$1$").append(HashSHA1(toSign)).toString();
         request.setRequestProperty("X-Ovh-Consumer", ovh_consumer_key);
         request.setRequestProperty("X-Ovh-Signature", signature);
@@ -130,6 +116,7 @@ public class DyndnsUpdater{
             body="";
             boolean success2=ovhApiRequest(url, "POST",body);
             boolean successTOT=success1&&success2;
+
             //update ip.txt
             LocalDateTime now = LocalDateTime.now();  
             if(successTOT){
